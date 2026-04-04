@@ -1,0 +1,27 @@
+{
+  "name": "agent-memory",
+  "version": "0.1.0",
+  "description": "Persistent memory layer for AI coding agents — built on top of Entire.io checkpoints",
+  "main": "dist/cli.js",
+  "bin": {
+    "agent-memory": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/cli.ts",
+    "test": "jest"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "memory",
+    "entire",
+    "checkpoints"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  }
+}

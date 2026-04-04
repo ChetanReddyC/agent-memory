@@ -1,0 +1,240 @@
+import * as fs from "fs";
+import * as path from "path";
+import { execSync } from "child_process";
+import { EntireCheckpointMeta, MemoryRecord, TranscriptEntry } from "../types";
+import {
+  extractUserMessages,
+  extractAssistantMessages,
+  extractToolCalls,
+  generateTags,
+} from "./extractor";
+
+/**
+ * Reads the raw JSONL transcript from a checkpoint on the Entire branch.
+ */
+function readCheckpointTranscript(repoPath: string, checkpointId: string): TranscriptEntry[] {
+  const shard = checkpointId.slice(0, 2);
+  const remaining = checkpointId.slice(2);
+  const gitPath = `${shard}/${remaining}/0/full.jsonl`;
+
+  try {
+    const raw = execSync(`git show entire/checkpoints/v1:${gitPath}`, {
+      cwd: repoPath,
+      encoding: "utf-8",
+      maxBuffer: 50 * 1024 * 1024, // 50MB buffer for large sessions
+    });
+
+    return raw
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line) as TranscriptEntry);
+  } catch {
+    throw new Error(`Failed to read transcript for checkpoint ${checkpointId}`);
+  }
+}
+
+/**
+ * Reads checkpoint metadata from the Entire branch.
+ */
+function readCheckpointMeta(repoPath: string, checkpointId: string): EntireCheckpointMeta {
+  const shard = checkpointId.slice(0, 2);
+  const remaining = checkpointId.slice(2);
+  const gitPath = `${shard}/${remaining}/0/metadata.json`;
+
+  try {
+    const raw = execSync(`git show entire/checkpoints/v1:${gitPath}`, {
+      cwd: repoPath,
+      encoding: "utf-8",
+    });
+    return JSON.parse(raw) as EntireCheckpointMeta;
+  } catch {
+    throw new Error(`Failed to read metadata for checkpoint ${checkpointId}`);
+  }
+}
+
+/**
+ * Lists all checkpoint IDs in the repository.
+ */
+export function listCheckpoints(repoPath: string): string[] {
+  try {
+    const raw = execSync("git ls-tree -r --name-only entire/checkpoints/v1", {
+      cwd: repoPath,
+      encoding: "utf-8",
+    });
+
+    const checkpointIds = new Set<string>();
+    for (const line of raw.split("\n")) {
+      // Pattern: XX/YYYYYYYYYY/... → checkpoint ID is XX + YYYYYYYYYY
+      const match = line.match(/^([0-9a-f]{2})\/([0-9a-f]+)\//);
+      if (match) {
+        checkpointIds.add(match[1] + match[2]);
+      }
+    }
+    return Array.from(checkpointIds);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Core distillation: takes a raw checkpoint and produces a compact MemoryRecord.
+ *
+ * This uses heuristics to extract decisions, failures, and warnings
+ * from the conversation transcript. For higher quality distillation,
+ * an LLM call can be used (see distillWithLLM).
+ */
+export function distill(repoPath: string, checkpointId: string): MemoryRecord {
+  const meta = readCheckpointMeta(repoPath, checkpointId);
+  const entries = readCheckpointTranscript(repoPath, checkpointId);
+
+  const userMessages = extractUserMessages(entries);
+  const assistantMessages = extractAssistantMessages(entries);
+  const toolCalls = extractToolCalls(entries);
+
+  // Extract intent from the first user message
+  const intent = userMessages.length > 0
+    ? userMessages[0].slice(0, 200).replace(/\n/g, " ").trim()
+    : "Unknown intent";
+
+  // Extract decisions: assistant messages that contain definitive statements
+  const decisions = extractDecisions(assistantMessages);
+
+  // Extract failed approaches: patterns like "that didn't work", errors, retries
+  const failedApproaches = extractFailures(userMessages, assistantMessages);
+
+  // Extract warnings: important caveats discovered during the session
+  const warnings = extractWarnings(assistantMessages);
+
+  // Extract resolution from the last few assistant messages
+  const resolution = extractResolution(assistantMessages);
+
+  // Generate searchable tags
+  const tags = generateTags(meta.files_touched, userMessages, assistantMessages);
+
+  // Normalize file paths — keep just the relative path
+  const files = meta.files_touched.map((f) => {
+    const parts = f.split(/[/\\]/);
+    // Keep last 3 path segments for context
+    return parts.slice(-3).join("/");
+  });
+
+  return {
+    checkpoint_id: checkpointId,
+    session_id: meta.session_id,
+    date: meta.created_at.split("T")[0],
+    branch: meta.branch,
+    files,
+    tags,
+    turn_count: meta.session_metrics.turn_count,
+    token_usage: meta.token_usage.output_tokens + meta.token_usage.input_tokens,
+    intent,
+    decisions,
+    failed_approaches: failedApproaches,
+    warnings,
+    resolution,
+  };
+}
+
+/** Extracts key decisions from assistant messages */
+function extractDecisions(messages: string[]): string[] {
+  const decisions: string[] = [];
+  const decisionPatterns = [
+    /the (?:core |root |main )?(?:issue|problem|cause|error) (?:is|was)[:.]?\s*(.+)/i,
+    /root cause[:.]?\s*(.+)/i,
+    /(?:i'll|let me|we need to|we should|the fix is to)\s+(.+)/i,
+    /(?:changed|updated|switched|modified|replaced)\s+(.+)/i,
+  ];
+
+  for (const msg of messages) {
+    const sentences = msg.split(/[.!]\s+/);
+    for (const sentence of sentences) {
+      for (const pattern of decisionPatterns) {
+        const match = sentence.match(pattern);
+        if (match && match[1] && match[1].length > 20 && match[1].length < 200) {
+          decisions.push(match[1].trim());
+          break;
+        }
+      }
+    }
+  }
+
+  // Deduplicate and limit
+  return [...new Set(decisions)].slice(0, 5);
+}
+
+/** Extracts failed approaches from the conversation */
+function extractFailures(userMessages: string[], assistantMessages: string[]): string[] {
+  const failures: string[] = [];
+  const failurePatterns = [
+    /still (?:getting|seeing|having|shows?)\s+(.+)/i,
+    /(?:that |it )?(?:didn't work|still fails|same error|still broken)/i,
+    /(?:tried|attempted)\s+(.+?)(?:\s+but|\s+however)/i,
+    /even after\s+(.+)/i,
+  ];
+
+  for (const msg of [...userMessages, ...assistantMessages]) {
+    const sentences = msg.split(/[.!]\s+/);
+    for (const sentence of sentences) {
+      for (const pattern of failurePatterns) {
+        const match = sentence.match(pattern);
+        if (match) {
+          const failure = (match[1] || sentence).slice(0, 150).trim();
+          if (failure.length > 15) {
+            failures.push(failure);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return [...new Set(failures)].slice(0, 5);
+}
+
+/** Extracts warnings and caveats from assistant messages */
+function extractWarnings(messages: string[]): string[] {
+  const warnings: string[] = [];
+  const warningPatterns = [
+    /(?:important|note|warning|careful|make sure|don't forget)[:.]?\s*(.+)/i,
+    /(?:must|need to|have to|should)\s+(?:also\s+)?(.+)/i,
+    /(?:otherwise|or else)\s+(.+)/i,
+  ];
+
+  for (const msg of messages) {
+    const sentences = msg.split(/[.!]\s+/);
+    for (const sentence of sentences) {
+      for (const pattern of warningPatterns) {
+        const match = sentence.match(pattern);
+        if (match && match[1] && match[1].length > 20 && match[1].length < 200) {
+          warnings.push(match[1].trim());
+          break;
+        }
+      }
+    }
+  }
+
+  return [...new Set(warnings)].slice(0, 5);
+}
+
+/** Extracts the resolution from the last few assistant messages */
+function extractResolution(messages: string[]): string {
+  if (messages.length === 0) return "Session ended without clear resolution";
+
+  // Take the last 2 assistant messages and look for resolution language
+  const lastMessages = messages.slice(-2).join(" ");
+  const resolutionPatterns = [
+    /(?:fixed|resolved|working|done|completed)[:.]?\s*(.+)/i,
+    /(?:the solution was|this fixes|this resolves)\s+(.+)/i,
+  ];
+
+  for (const pattern of resolutionPatterns) {
+    const match = lastMessages.match(pattern);
+    if (match && match[1]) {
+      return match[1].slice(0, 200).trim();
+    }
+  }
+
+  // Fallback: summarize from last message
+  const lastMsg = messages[messages.length - 1];
+  return lastMsg.slice(0, 200).replace(/\n/g, " ").trim();
+}
