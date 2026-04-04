@@ -1,6 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
 
+export { installClaudeHook, uninstallClaudeHook, isClaudeHookInstalled } from "./claude-code";
+
 const HOOK_START_MARKER = "# >>> agent-memory hook >>>";
 const HOOK_END_MARKER = "# <<< agent-memory hook <<<";
 

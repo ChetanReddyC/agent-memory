@@ -5,8 +5,8 @@ import { distill, listCheckpoints } from "./distiller";
 import { detectClaudeCLI } from "./distiller/llm";
 import { MemoryStore } from "./store";
 import { gatherContext, retrieve } from "./retriever";
-import { formatForInjection, formatAsJSON } from "./injector";
-import { installHook, uninstallHook, isHookInstalled } from "./hooks";
+import { formatForInjection, formatAsJSON, formatSummary, formatDistillNotice } from "./injector";
+import { installHook, uninstallHook, isHookInstalled, installClaudeHook, uninstallClaudeHook, isClaudeHookInstalled } from "./hooks";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -59,7 +59,7 @@ async function main() {
           try {
             const record = await distill(repoPath, cpId, memoriesDir);
             store.save(record);
-            console.log(`  distilled: ${cpId} → ${record.decisions.length} decisions, ${record.warnings.length} warnings`);
+            console.log(`  ${formatDistillNotice(record)}`);
             distilled++;
           } catch (err) {
             console.error(`  failed: ${cpId} — ${(err as Error).message}`);
@@ -121,11 +121,14 @@ async function main() {
       if (format) {
         console.log(formatAsJSON(memories));
       } else {
+        // Developer summary (compact, scannable)
+        console.log(formatSummary(memories, context.branch));
+        console.log("");
+
+        // Full memory block for agent consumption
         const output = formatForInjection(memories);
         if (output) {
           console.log(output);
-        } else {
-          console.log("No relevant memories to inject.");
         }
       }
       break;
@@ -185,22 +188,36 @@ async function main() {
 
     case "install": {
       const cliPath = path.resolve(__dirname, "../src/cli.ts");
-      const result = installHook(repoPath, cliPath);
-      console.log(result.message);
-      if (!result.success) process.exit(1);
+
+      // Install git post-commit hook (auto-distill)
+      const gitResult = installHook(repoPath, cliPath);
+      console.log(`[git hook] ${gitResult.message}`);
+
+      // Install Claude Code hook (auto-inject)
+      const claudeResult = installClaudeHook(repoPath, cliPath);
+      console.log(`[claude hook] ${claudeResult.message}`);
+
+      if (!gitResult.success || !claudeResult.success) process.exit(1);
+      console.log("\nSetup complete. Memories will auto-distill on commit and auto-inject on session start.");
       break;
     }
 
     case "uninstall": {
-      const result = uninstallHook(repoPath);
-      console.log(result.message);
-      if (!result.success) process.exit(1);
+      const gitResult = uninstallHook(repoPath);
+      console.log(`[git hook] ${gitResult.message}`);
+
+      const claudeResult = uninstallClaudeHook(repoPath);
+      console.log(`[claude hook] ${claudeResult.message}`);
+
+      if (!gitResult.success || !claudeResult.success) process.exit(1);
       break;
     }
 
     case "status": {
-      const installed = isHookInstalled(repoPath);
-      console.log(`Hook status: ${installed ? "installed" : "not installed"}`);
+      const gitInstalled = isHookInstalled(repoPath);
+      const claudeInstalled = isClaudeHookInstalled(repoPath);
+      console.log(`Git hook (auto-distill):     ${gitInstalled ? "installed" : "not installed"}`);
+      console.log(`Claude hook (auto-inject):   ${claudeInstalled ? "installed" : "not installed"}`);
       console.log(`Memories: ${store.count()}`);
       const checkpoints = listCheckpoints(repoPath);
       console.log(`Checkpoints found: ${checkpoints.length}`);

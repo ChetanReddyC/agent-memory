@@ -1,4 +1,4 @@
-import { ScoredMemory } from "../types";
+import { ScoredMemory, MemoryRecord } from "../types";
 
 /**
  * Formats scored memories into a context block ready for agent injection.
@@ -97,4 +97,55 @@ export function formatAsJSON(memories: ScoredMemory[]): string {
     null,
     2
   );
+}
+
+/**
+ * Formats a short date like "Apr 3", "Mar 28".
+ */
+function shortDate(dateStr: string): string {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return dateStr;
+  const month = months[parseInt(parts[1], 10) - 1] || parts[1];
+  const day = parseInt(parts[2], 10);
+  return `${month} ${day}`;
+}
+
+/**
+ * Formats a compact developer-facing summary of injected memories.
+ * Shows key insight per memory, relevance score, and short date.
+ */
+export function formatSummary(memories: ScoredMemory[], branch: string): string {
+  if (memories.length === 0) {
+    return "agent-memory | no relevant memories found";
+  }
+
+  const lines: string[] = [];
+  lines.push(`agent-memory | ${memories.length} ${memories.length === 1 ? "memory" : "memories"} injected (branch: ${branch})`);
+
+  for (const { memory, score, breakdown } of memories) {
+    const intent = memory.intent.slice(0, 30).padEnd(30);
+    const insight = memory.key_insight
+      ? `"${memory.key_insight.slice(0, 60)}"`
+      : `${memory.decisions[0]?.slice(0, 60) || "no details"}`;
+    const date = shortDate(memory.date);
+
+    // Show which signals fired
+    const signals: string[] = [];
+    if (breakdown.error_match && breakdown.error_match > 0) signals.push(`error:${Math.round(breakdown.error_match)}%`);
+    if (breakdown.file_overlap > 0) signals.push(`files:${Math.round(breakdown.file_overlap)}%`);
+    const signalStr = signals.length > 0 ? ` (${signals.join(", ")})` : "";
+
+    lines.push(`  [${Math.round(score)}%]${signalStr} ${intent} | ${insight} | ${date}`);
+  }
+
+  lines.push(`  view: agent-memory show ${memories[0].memory.checkpoint_id}`);
+  return lines.join("\n");
+}
+
+/**
+ * Formats a one-line distillation notification.
+ */
+export function formatDistillNotice(record: MemoryRecord): string {
+  return `agent-memory | distilled 1 checkpoint (${record.decisions.length} decisions, ${record.warnings.length} warnings)`;
 }
