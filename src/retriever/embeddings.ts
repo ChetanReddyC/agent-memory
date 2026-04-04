@@ -46,6 +46,7 @@ export function buildEmbeddingText(memory: MemoryRecord): string {
     memory.resolution,
     ...(memory.error_signatures || []),
     ...(memory.cause_chain || []),
+    ...(memory.file_dependencies || []),
     memory.key_insight || "",
   ]
     .filter((s) => s.length > 0)
