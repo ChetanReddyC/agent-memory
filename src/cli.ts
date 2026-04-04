@@ -6,6 +6,7 @@ import { detectClaudeCLI } from "./distiller/llm";
 import { MemoryStore } from "./store";
 import { gatherContext, retrieve } from "./retriever";
 import { formatForInjection, formatAsJSON } from "./injector";
+import { installHook, uninstallHook, isHookInstalled } from "./hooks";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -27,6 +28,9 @@ Commands:
   list                      List all stored memories
   show [checkpoint-id]      Show a specific memory record
   stats                     Show memory store statistics
+  install                   Install post-commit hook for auto-distillation
+  uninstall                 Remove the post-commit hook
+  status                    Check if hook is installed
 
 Options:
   --repo <path>             Repository path (default: current directory)
@@ -175,6 +179,31 @@ async function main() {
       if (memories.length > 0) {
         console.log(`Date range:  ${memories[memories.length - 1].date} → ${memories[0].date}`);
       }
+      break;
+    }
+
+    case "install": {
+      const cliPath = path.resolve(__dirname, "../src/cli.ts");
+      const result = installHook(repoPath, cliPath);
+      console.log(result.message);
+      if (!result.success) process.exit(1);
+      break;
+    }
+
+    case "uninstall": {
+      const result = uninstallHook(repoPath);
+      console.log(result.message);
+      if (!result.success) process.exit(1);
+      break;
+    }
+
+    case "status": {
+      const installed = isHookInstalled(repoPath);
+      console.log(`Hook status: ${installed ? "installed" : "not installed"}`);
+      console.log(`Memories: ${store.count()}`);
+      const checkpoints = listCheckpoints(repoPath);
+      console.log(`Checkpoints found: ${checkpoints.length}`);
+      console.log(`Undistilled: ${checkpoints.filter(c => !store.exists(c)).length}`);
       break;
     }
 
