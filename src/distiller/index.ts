@@ -8,6 +8,7 @@ import {
   extractToolCalls,
   generateTags,
 } from "./extractor";
+import { distillWithLLM } from "./llm";
 
 /**
  * Reads the raw JSONL transcript from a checkpoint on the Entire branch.
@@ -79,9 +80,8 @@ export function listCheckpoints(repoPath: string): string[] {
 /**
  * Core distillation: takes a raw checkpoint and produces a compact MemoryRecord.
  *
- * This uses heuristics to extract decisions, failures, and warnings
- * from the conversation transcript. For higher quality distillation,
- * an LLM call can be used (see distillWithLLM).
+ * Tries LLM-powered distillation (Claude CLI) first for higher quality.
+ * Falls back to heuristic extraction if Claude CLI is not available.
  */
 export function distill(repoPath: string, checkpointId: string): MemoryRecord {
   const meta = readCheckpointMeta(repoPath, checkpointId);
@@ -91,32 +91,49 @@ export function distill(repoPath: string, checkpointId: string): MemoryRecord {
   const assistantMessages = extractAssistantMessages(entries);
   const toolCalls = extractToolCalls(entries);
 
-  // Extract intent from the first user message
+  // Generate searchable tags
+  const tags = generateTags(meta.files_touched, userMessages, assistantMessages);
+
+  // Normalize file paths
+  const files = meta.files_touched.map((f) => {
+    const parts = f.split(/[/\\]/);
+    return parts.slice(-3).join("/");
+  });
+
+  // Try LLM distillation first
+  const llmResult = distillWithLLM(entries, meta);
+
+  if (llmResult) {
+    return {
+      checkpoint_id: checkpointId,
+      session_id: meta.session_id,
+      date: meta.created_at.split("T")[0],
+      branch: meta.branch,
+      files,
+      tags,
+      turn_count: meta.session_metrics.turn_count,
+      token_usage: meta.token_usage.output_tokens + meta.token_usage.input_tokens,
+      intent: llmResult.intent,
+      decisions: llmResult.decisions,
+      failed_approaches: llmResult.failed_approaches,
+      warnings: llmResult.warnings,
+      resolution: llmResult.resolution,
+      error_signatures: llmResult.error_signatures || [],
+      cause_chain: llmResult.cause_chain || [],
+      file_dependencies: llmResult.file_dependencies || [],
+      key_insight: llmResult.key_insight || "",
+    };
+  }
+
+  // Fallback: heuristic extraction
   const intent = userMessages.length > 0
     ? userMessages[0].slice(0, 200).replace(/\n/g, " ").trim()
     : "Unknown intent";
 
-  // Extract decisions: assistant messages that contain definitive statements
   const decisions = extractDecisions(assistantMessages);
-
-  // Extract failed approaches: patterns like "that didn't work", errors, retries
   const failedApproaches = extractFailures(userMessages, assistantMessages);
-
-  // Extract warnings: important caveats discovered during the session
   const warnings = extractWarnings(assistantMessages);
-
-  // Extract resolution from the last few assistant messages
   const resolution = extractResolution(assistantMessages);
-
-  // Generate searchable tags
-  const tags = generateTags(meta.files_touched, userMessages, assistantMessages);
-
-  // Normalize file paths — keep just the relative path
-  const files = meta.files_touched.map((f) => {
-    const parts = f.split(/[/\\]/);
-    // Keep last 3 path segments for context
-    return parts.slice(-3).join("/");
-  });
 
   return {
     checkpoint_id: checkpointId,
@@ -132,6 +149,10 @@ export function distill(repoPath: string, checkpointId: string): MemoryRecord {
     failed_approaches: failedApproaches,
     warnings,
     resolution,
+    error_signatures: [],
+    cause_chain: [],
+    file_dependencies: [],
+    key_insight: "",
   };
 }
 

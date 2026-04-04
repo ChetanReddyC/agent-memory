@@ -40,8 +40,33 @@ export function formatForInjection(memories: ScoredMemory[]): string {
       }
     }
 
+    if (memory.error_signatures && memory.error_signatures.length > 0) {
+      lines.push("Error signatures:");
+      for (const e of memory.error_signatures) {
+        lines.push(`  - ${e}`);
+      }
+    }
+
+    if (memory.cause_chain && memory.cause_chain.length > 0) {
+      lines.push("Cause chain:");
+      for (const c of memory.cause_chain) {
+        lines.push(`  - ${c}`);
+      }
+    }
+
+    if (memory.file_dependencies && memory.file_dependencies.length > 0) {
+      lines.push("File dependencies:");
+      for (const d of memory.file_dependencies) {
+        lines.push(`  - ${d}`);
+      }
+    }
+
     if (memory.resolution) {
       lines.push(`Resolution: ${memory.resolution}`);
+    }
+
+    if (memory.key_insight) {
+      lines.push(`Key insight: ${memory.key_insight}`);
     }
 
     lines.push("");
@@ -63,7 +88,11 @@ export function formatAsJSON(memories: ScoredMemory[]): string {
       decisions: memory.decisions,
       failed_approaches: memory.failed_approaches,
       warnings: memory.warnings,
+      error_signatures: memory.error_signatures,
+      cause_chain: memory.cause_chain,
+      file_dependencies: memory.file_dependencies,
       resolution: memory.resolution,
+      key_insight: memory.key_insight,
     })),
     null,
     2

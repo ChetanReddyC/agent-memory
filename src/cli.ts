@@ -2,6 +2,7 @@
 
 import * as path from "path";
 import { distill, listCheckpoints } from "./distiller";
+import { detectClaudeCLI } from "./distiller/llm";
 import { MemoryStore } from "./store";
 import { gatherContext, retrieve } from "./retriever";
 import { formatForInjection, formatAsJSON } from "./injector";
@@ -41,6 +42,8 @@ async function main() {
 
       if (target === "--all") {
         const checkpoints = listCheckpoints(repoPath);
+        const claudeAvailable = detectClaudeCLI() !== null;
+        console.log(`Distillation mode: ${claudeAvailable ? "LLM (Claude CLI)" : "heuristic (fallback)"}`);
         let distilled = 0;
         let skipped = 0;
 

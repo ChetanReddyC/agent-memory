@@ -60,6 +60,18 @@ export interface MemoryRecord {
 
   /** Final outcome / what was resolved */
   resolution: string;
+
+  /** Exact error messages/codes encountered during the session */
+  error_signatures: string[];
+
+  /** Debugging path: symptom → misdiagnosis → actual root cause */
+  cause_chain: string[];
+
+  /** Concrete file coupling rules learned: "change A → must also change B" */
+  file_dependencies: string[];
+
+  /** Single most important takeaway from the entire session */
+  key_insight: string;
 }
 
 /** Context gathered at the start of a new session */

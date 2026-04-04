@@ -66,6 +66,10 @@ function computeSemanticSimilarity(memory: MemoryRecord, prompt: string): number
     ...memory.failed_approaches,
     ...memory.warnings,
     memory.resolution,
+    ...(memory.error_signatures || []),
+    ...(memory.cause_chain || []),
+    ...(memory.file_dependencies || []),
+    memory.key_insight || "",
     ...memory.tags,
   ]
     .join(" ")
