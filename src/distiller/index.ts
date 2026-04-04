@@ -9,6 +9,7 @@ import {
   generateTags,
 } from "./extractor";
 import { distillWithLLM } from "./llm";
+import { generateEmbedding, buildEmbeddingText, EmbeddingStore } from "../retriever/embeddings";
 
 /**
  * Reads the raw JSONL transcript from a checkpoint on the Entire branch.
@@ -83,7 +84,7 @@ export function listCheckpoints(repoPath: string): string[] {
  * Tries LLM-powered distillation (Claude CLI) first for higher quality.
  * Falls back to heuristic extraction if Claude CLI is not available.
  */
-export function distill(repoPath: string, checkpointId: string): MemoryRecord {
+export async function distill(repoPath: string, checkpointId: string, memoriesDir?: string): Promise<MemoryRecord> {
   const meta = readCheckpointMeta(repoPath, checkpointId);
   const entries = readCheckpointTranscript(repoPath, checkpointId);
 
@@ -103,8 +104,10 @@ export function distill(repoPath: string, checkpointId: string): MemoryRecord {
   // Try LLM distillation first
   const llmResult = distillWithLLM(entries, meta);
 
+  let record: MemoryRecord;
+
   if (llmResult) {
-    return {
+    record = {
       checkpoint_id: checkpointId,
       session_id: meta.session_id,
       date: meta.created_at.split("T")[0],
@@ -123,37 +126,52 @@ export function distill(repoPath: string, checkpointId: string): MemoryRecord {
       file_dependencies: llmResult.file_dependencies || [],
       key_insight: llmResult.key_insight || "",
     };
+  } else {
+    // Fallback: heuristic extraction
+    const intent = userMessages.length > 0
+      ? userMessages[0].slice(0, 200).replace(/\n/g, " ").trim()
+      : "Unknown intent";
+
+    const decisions = extractDecisions(assistantMessages);
+    const failedApproaches = extractFailures(userMessages, assistantMessages);
+    const warnings = extractWarnings(assistantMessages);
+    const resolution = extractResolution(assistantMessages);
+
+    record = {
+      checkpoint_id: checkpointId,
+      session_id: meta.session_id,
+      date: meta.created_at.split("T")[0],
+      branch: meta.branch,
+      files,
+      tags,
+      turn_count: meta.session_metrics.turn_count,
+      token_usage: meta.token_usage.output_tokens + meta.token_usage.input_tokens,
+      intent,
+      decisions,
+      failed_approaches: failedApproaches,
+      warnings,
+      resolution,
+      error_signatures: [],
+      cause_chain: [],
+      file_dependencies: [],
+      key_insight: "",
+    };
   }
 
-  // Fallback: heuristic extraction
-  const intent = userMessages.length > 0
-    ? userMessages[0].slice(0, 200).replace(/\n/g, " ").trim()
-    : "Unknown intent";
+  // Generate embedding vector for this memory
+  if (memoriesDir) {
+    try {
+      const embeddingText = buildEmbeddingText(record);
+      const vector = await generateEmbedding(embeddingText);
+      const embeddingStore = new EmbeddingStore(memoriesDir);
+      embeddingStore.set(checkpointId, vector);
+      embeddingStore.save();
+    } catch {
+      // Embedding generation failed — memory still works without it
+    }
+  }
 
-  const decisions = extractDecisions(assistantMessages);
-  const failedApproaches = extractFailures(userMessages, assistantMessages);
-  const warnings = extractWarnings(assistantMessages);
-  const resolution = extractResolution(assistantMessages);
-
-  return {
-    checkpoint_id: checkpointId,
-    session_id: meta.session_id,
-    date: meta.created_at.split("T")[0],
-    branch: meta.branch,
-    files,
-    tags,
-    turn_count: meta.session_metrics.turn_count,
-    token_usage: meta.token_usage.output_tokens + meta.token_usage.input_tokens,
-    intent,
-    decisions,
-    failed_approaches: failedApproaches,
-    warnings,
-    resolution,
-    error_signatures: [],
-    cause_chain: [],
-    file_dependencies: [],
-    key_insight: "",
-  };
+  return record;
 }
 
 /** Extracts key decisions from assistant messages */

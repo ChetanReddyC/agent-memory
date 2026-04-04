@@ -53,7 +53,7 @@ async function main() {
             continue;
           }
           try {
-            const record = distill(repoPath, cpId);
+            const record = await distill(repoPath, cpId, memoriesDir);
             store.save(record);
             console.log(`  distilled: ${cpId} → ${record.decisions.length} decisions, ${record.warnings.length} warnings`);
             distilled++;
@@ -69,7 +69,7 @@ async function main() {
           console.log(`Memory already exists for ${target}. Use 'show' to view it.`);
           return;
         }
-        const record = distill(repoPath, target);
+        const record = await distill(repoPath, target, memoriesDir);
         store.save(record);
         console.log(`Distilled checkpoint ${target}:`);
         console.log(JSON.stringify(record, null, 2));
@@ -83,7 +83,7 @@ async function main() {
       const prompt = args.slice(1).join(" ");
       const topK = getFlag("--top", 5);
       const context = gatherContext(repoPath, prompt);
-      const memories = retrieve(store, context, topK);
+      const memories = await retrieve(store, context, topK, memoriesDir);
 
       if (memories.length === 0) {
         console.log("No relevant memories found.");
@@ -110,7 +110,7 @@ async function main() {
       const prompt = args.slice(1).join(" ");
       const topK = getFlag("--top", 5);
       const context = gatherContext(repoPath, prompt);
-      const memories = retrieve(store, context, topK);
+      const memories = await retrieve(store, context, topK, memoriesDir);
 
       const format = args.includes("--format") && args[args.indexOf("--format") + 1] === "json";
       if (format) {

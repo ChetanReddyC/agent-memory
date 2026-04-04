@@ -2,6 +2,7 @@ import { execSync } from "child_process";
 import { MemoryRecord, SessionContext, ScoredMemory } from "../types";
 import { MemoryStore } from "../store";
 import { scoreMemory } from "./scorer";
+import { generateEmbedding, cosineSimilarity, EmbeddingStore } from "./embeddings";
 
 /** Default: return top 5 memories */
 const DEFAULT_TOP_K = 5;
@@ -18,7 +19,6 @@ export function gatherContext(repoPath: string, prompt: string): SessionContext 
   let branch = "unknown";
 
   try {
-    // Current branch
     branch = execSync("git branch --show-current", {
       cwd: repoPath,
       encoding: "utf-8",
@@ -28,7 +28,6 @@ export function gatherContext(repoPath: string, prompt: string): SessionContext 
   }
 
   try {
-    // Modified files (staged + unstaged)
     const diff = execSync("git diff --name-only HEAD", {
       cwd: repoPath,
       encoding: "utf-8",
@@ -39,7 +38,6 @@ export function gatherContext(repoPath: string, prompt: string): SessionContext 
   }
 
   try {
-    // Recently committed files (last 3 commits)
     const log = execSync("git log -3 --name-only --pretty=format:", {
       cwd: repoPath,
       encoding: "utf-8",
@@ -58,28 +56,47 @@ export function gatherContext(repoPath: string, prompt: string): SessionContext 
 }
 
 /**
- * Retrieves the most relevant memories for the current context.
- *
- * 1. Loads all memories from the store
- * 2. Scores each against the current context
- * 3. Filters below threshold
- * 4. Returns top-K sorted by score
+ * Retrieves the most relevant memories using embedding-based semantic similarity.
+ * Falls back to keyword matching if embeddings aren't available.
  */
-export function retrieve(
+export async function retrieve(
   store: MemoryStore,
   context: SessionContext,
-  topK: number = DEFAULT_TOP_K
-): ScoredMemory[] {
+  topK: number = DEFAULT_TOP_K,
+  memoriesDir?: string
+): Promise<ScoredMemory[]> {
   const allMemories = store.loadAll();
-
   if (allMemories.length === 0) return [];
 
-  // Score every memory against current context
+  // Try embedding-based retrieval
+  let promptEmbedding: number[] | null = null;
+  let embeddingStore: EmbeddingStore | null = null;
+
+  if (memoriesDir) {
+    try {
+      embeddingStore = new EmbeddingStore(memoriesDir);
+      promptEmbedding = await generateEmbedding(context.prompt);
+    } catch {
+      // Embeddings not available — fall back to keywords
+      promptEmbedding = null;
+    }
+  }
+
   const scored = allMemories
-    .map((memory) => scoreMemory(memory, context))
+    .map((memory) => {
+      let embeddingSimilarity: number | undefined;
+
+      if (promptEmbedding && embeddingStore) {
+        const memoryVector = embeddingStore.get(memory.checkpoint_id);
+        if (memoryVector) {
+          embeddingSimilarity = cosineSimilarity(promptEmbedding, memoryVector);
+        }
+      }
+
+      return scoreMemory(memory, context, embeddingSimilarity);
+    })
     .filter((sm) => sm.score >= MIN_SCORE_THRESHOLD)
     .sort((a, b) => b.score - a.score);
 
-  // Return top-K
   return scored.slice(0, topK);
 }

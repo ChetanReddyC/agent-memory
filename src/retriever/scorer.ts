@@ -1,15 +1,25 @@
 import { MemoryRecord, SessionContext, ScoredMemory } from "../types";
+import { cosineSimilarity } from "./embeddings";
 
 /**
  * Scores a memory record against the current session context.
- * Returns a score between 0-100 with breakdown.
+ * Uses pre-computed embedding similarity if available, falls back to keyword matching.
  */
-export function scoreMemory(memory: MemoryRecord, context: SessionContext): ScoredMemory {
+export function scoreMemory(
+  memory: MemoryRecord,
+  context: SessionContext,
+  embeddingSimilarity?: number
+): ScoredMemory {
   const fileOverlap = computeFileOverlap(memory.files, [
     ...context.modified_files,
     ...context.recent_files,
   ]);
-  const semantic = computeSemanticSimilarity(memory, context.prompt);
+
+  // Use embedding similarity if provided, otherwise fall back to keywords
+  const semantic = embeddingSimilarity !== undefined
+    ? embeddingSimilarity * 100
+    : computeKeywordSimilarity(memory, context.prompt);
+
   const recency = computeRecencyScore(memory.date);
   const importance = computeImportanceScore(memory);
 
@@ -37,9 +47,8 @@ export function scoreMemory(memory: MemoryRecord, context: SessionContext): Scor
  * Matches on filename (not full path) to catch reorganized files.
  */
 function computeFileOverlap(memoryFiles: string[], contextFiles: string[]): number {
-  if (contextFiles.length === 0) return 0;
+  if (!memoryFiles || !contextFiles || contextFiles.length === 0) return 0;
 
-  // Extract just filenames for fuzzy matching
   const memoryNames = new Set(memoryFiles.map((f) => f.split("/").pop()!.toLowerCase()));
   const contextNames = contextFiles.map((f) => f.split(/[/\\]/).pop()!.toLowerCase());
 
@@ -48,34 +57,30 @@ function computeFileOverlap(memoryFiles: string[], contextFiles: string[]): numb
     if (memoryNames.has(name)) matches++;
   }
 
-  // Score: percentage of context files that match, capped at 100
   return Math.min(100, (matches / contextNames.length) * 100);
 }
 
 /**
- * Semantic similarity: keyword overlap between prompt and memory content.
- * This is a simple TF approach — can be upgraded to embeddings later.
+ * Keyword similarity: fallback when embeddings aren't available.
  */
-function computeSemanticSimilarity(memory: MemoryRecord, prompt: string): number {
+function computeKeywordSimilarity(memory: MemoryRecord, prompt: string): number {
   if (!prompt || prompt.trim().length === 0) return 0;
 
-  // Build keyword set from memory
   const memoryText = [
-    memory.intent,
-    ...memory.decisions,
-    ...memory.failed_approaches,
-    ...memory.warnings,
-    memory.resolution,
+    memory.intent || "",
+    ...(memory.decisions || []),
+    ...(memory.failed_approaches || []),
+    ...(memory.warnings || []),
+    memory.resolution || "",
     ...(memory.error_signatures || []),
     ...(memory.cause_chain || []),
     ...(memory.file_dependencies || []),
     memory.key_insight || "",
-    ...memory.tags,
+    ...(memory.tags || []),
   ]
     .join(" ")
     .toLowerCase();
 
-  // Extract meaningful words from prompt (skip common words)
   const stopWords = new Set([
     "the", "a", "an", "is", "are", "was", "were", "be", "been",
     "being", "have", "has", "had", "do", "does", "did", "will",
@@ -111,7 +116,6 @@ function computeRecencyScore(dateStr: string): number {
   const now = new Date();
   const daysAgo = (now.getTime() - memoryDate.getTime()) / (1000 * 60 * 60 * 24);
 
-  // Exponential decay: score = 100 * e^(-0.05 * days)
   return Math.max(0, 100 * Math.exp(-0.05 * daysAgo));
 }
 
@@ -121,15 +125,8 @@ function computeRecencyScore(dateStr: string): number {
  */
 function computeImportanceScore(memory: MemoryRecord): number {
   let score = 0;
-
-  // More decisions = more important
-  score += Math.min(40, memory.decisions.length * 10);
-
-  // Failed approaches = learned something
-  score += Math.min(30, memory.failed_approaches.length * 10);
-
-  // Warnings = critical knowledge
-  score += Math.min(30, memory.warnings.length * 10);
-
+  score += Math.min(40, (memory.decisions || []).length * 10);
+  score += Math.min(30, (memory.failed_approaches || []).length * 10);
+  score += Math.min(30, (memory.warnings || []).length * 10);
   return Math.min(100, score);
 }
