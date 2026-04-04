@@ -101,7 +101,8 @@ async function main() {
         for (const { memory, score, breakdown } of memories) {
           console.log(`\n[${Math.round(score)}%] ${memory.date} — ${memory.intent.slice(0, 60)}`);
           console.log(`  Files: ${memory.files.join(", ")}`);
-          console.log(`  Scores: file=${Math.round(breakdown.file_overlap)} semantic=${Math.round(breakdown.semantic_similarity)} recency=${Math.round(breakdown.recency)} importance=${Math.round(breakdown.decision_importance)}`);
+          const errorStr = breakdown.error_match ? ` error=${Math.round(breakdown.error_match)}` : "";
+          console.log(`  Scores: file=${Math.round(breakdown.file_overlap)} semantic=${Math.round(breakdown.semantic_similarity)}${errorStr} recency=${Math.round(breakdown.recency)} importance=${Math.round(breakdown.decision_importance)}`);
           if (memory.decisions.length > 0) {
             console.log(`  Decisions: ${memory.decisions[0]}`);
           }

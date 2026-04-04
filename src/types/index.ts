@@ -98,5 +98,6 @@ export interface ScoredMemory {
     semantic_similarity: number;
     recency: number;
     decision_importance: number;
+    error_match?: number;
   };
 }

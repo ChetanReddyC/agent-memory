@@ -1,34 +1,35 @@
 import { MemoryRecord, SessionContext, ScoredMemory } from "../types";
-import { cosineSimilarity } from "./embeddings";
 
 /**
  * Scores a memory record against the current session context.
- * Uses pre-computed embedding similarity if available, falls back to keyword matching.
+ * Uses 5 signals: file overlap, semantic similarity, error signature match, recency, importance.
  */
 export function scoreMemory(
   memory: MemoryRecord,
   context: SessionContext,
-  embeddingSimilarity?: number
+  embeddingSimilarity?: number,
+  errorCodes?: string[]
 ): ScoredMemory {
   const fileOverlap = computeFileOverlap(memory.files, [
     ...context.modified_files,
     ...context.recent_files,
   ]);
 
-  // Use embedding similarity if provided, otherwise fall back to keywords
   const semantic = embeddingSimilarity !== undefined
     ? embeddingSimilarity * 100
     : computeKeywordSimilarity(memory, context.prompt);
 
+  const errorMatch = errorCodes && errorCodes.length > 0
+    ? computeErrorSignatureMatch(memory, errorCodes)
+    : 0;
+
   const recency = computeRecencyScore(memory.date);
   const importance = computeImportanceScore(memory);
 
-  // Weighted combination
-  const score =
-    fileOverlap * 0.4 +
-    semantic * 0.3 +
-    recency * 0.2 +
-    importance * 0.1;
+  // Weighted combination — 5 signals
+  const score = errorMatch > 0
+    ? fileOverlap * 0.3 + semantic * 0.25 + errorMatch * 0.2 + recency * 0.15 + importance * 0.1
+    : fileOverlap * 0.4 + semantic * 0.3 + recency * 0.2 + importance * 0.1;
 
   return {
     memory,
@@ -38,13 +39,13 @@ export function scoreMemory(
       semantic_similarity: semantic,
       recency,
       decision_importance: importance,
+      error_match: errorMatch,
     },
   };
 }
 
 /**
  * File overlap: what percentage of current files were touched in this memory?
- * Matches on filename (not full path) to catch reorganized files.
  */
 function computeFileOverlap(memoryFiles: string[], contextFiles: string[]): number {
   if (!memoryFiles || !contextFiles || contextFiles.length === 0) return 0;
@@ -108,8 +109,27 @@ function computeKeywordSimilarity(memory: MemoryRecord, prompt: string): number 
 }
 
 /**
+ * Error signature match: exact match extracted error codes against stored signatures.
+ * This is the highest-precision signal — a matching error code is almost always relevant.
+ */
+function computeErrorSignatureMatch(memory: MemoryRecord, errorCodes: string[]): number {
+  const signatures = memory.error_signatures || [];
+  if (signatures.length === 0 || errorCodes.length === 0) return 0;
+
+  const sigText = signatures.join(" ").toLowerCase();
+
+  let matches = 0;
+  for (const code of errorCodes) {
+    if (sigText.includes(code.toLowerCase())) {
+      matches++;
+    }
+  }
+
+  return Math.min(100, (matches / errorCodes.length) * 100);
+}
+
+/**
  * Recency score: exponential decay from today.
- * Yesterday = 100, 1 week ago = ~70, 1 month ago = ~30, 3 months = ~5
  */
 function computeRecencyScore(dateStr: string): number {
   const memoryDate = new Date(dateStr);
@@ -120,8 +140,7 @@ function computeRecencyScore(dateStr: string): number {
 }
 
 /**
- * Importance score: sessions with more decisions, warnings, and failures
- * are more important to remember.
+ * Importance score: sessions with more decisions, warnings, and failures matter more.
  */
 function computeImportanceScore(memory: MemoryRecord): number {
   let score = 0;

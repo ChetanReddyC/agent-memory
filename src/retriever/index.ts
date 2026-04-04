@@ -3,6 +3,7 @@ import { MemoryRecord, SessionContext, ScoredMemory } from "../types";
 import { MemoryStore } from "../store";
 import { scoreMemory } from "./scorer";
 import { generateEmbedding, cosineSimilarity, EmbeddingStore } from "./embeddings";
+import { refineQuery } from "./query";
 
 /** Default: return top 5 memories */
 const DEFAULT_TOP_K = 5;
@@ -56,8 +57,9 @@ export function gatherContext(repoPath: string, prompt: string): SessionContext 
 }
 
 /**
- * Retrieves the most relevant memories using embedding-based semantic similarity.
- * Falls back to keyword matching if embeddings aren't available.
+ * Retrieves the most relevant memories using LLM-enhanced query refinement,
+ * embedding-based semantic similarity, and error signature matching.
+ * Falls back gracefully at each layer.
  */
 export async function retrieve(
   store: MemoryStore,
@@ -68,20 +70,32 @@ export async function retrieve(
   const allMemories = store.loadAll();
   if (allMemories.length === 0) return [];
 
-  // Try embedding-based retrieval
+  // Step 1: Refine the query using LLM (or heuristic fallback)
+  const refined = refineQuery(context.prompt);
+
+  // Merge file hints from query refinement into context files
+  const enhancedContext: SessionContext = {
+    ...context,
+    recent_files: [
+      ...context.recent_files,
+      ...refined.file_hints,
+    ],
+  };
+
+  // Step 2: Generate embedding for the refined query
   let promptEmbedding: number[] | null = null;
   let embeddingStore: EmbeddingStore | null = null;
 
   if (memoriesDir) {
     try {
       embeddingStore = new EmbeddingStore(memoriesDir);
-      promptEmbedding = await generateEmbedding(context.prompt);
+      promptEmbedding = await generateEmbedding(refined.refined_query);
     } catch {
-      // Embeddings not available — fall back to keywords
       promptEmbedding = null;
     }
   }
 
+  // Step 3: Score every memory with all 5 signals
   const scored = allMemories
     .map((memory) => {
       let embeddingSimilarity: number | undefined;
@@ -93,7 +107,7 @@ export async function retrieve(
         }
       }
 
-      return scoreMemory(memory, context, embeddingSimilarity);
+      return scoreMemory(memory, enhancedContext, embeddingSimilarity, refined.error_codes);
     })
     .filter((sm) => sm.score >= MIN_SCORE_THRESHOLD)
     .sort((a, b) => b.score - a.score);

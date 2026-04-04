@@ -47,7 +47,6 @@ describe("scoreMemory", () => {
       const memory = createMemory({ files: ["src/auth.ts", "src/config.ts", "src/db.ts"] });
       const context = createContext({ recent_files: ["src/auth.ts", "src/other.ts"] });
       const result = scoreMemory(memory, context);
-      // 1 of 2 context files matches = 50%
       expect(result.breakdown.file_overlap).toBe(50);
     });
 
@@ -103,6 +102,50 @@ describe("scoreMemory", () => {
     });
   });
 
+  describe("error signature match", () => {
+    it("scores high when error codes match signatures", () => {
+      const memory = createMemory({ error_signatures: ["401 Unauthorized", "500 Internal Server Error"] });
+      const context = createContext();
+      const result = scoreMemory(memory, context, undefined, ["401"]);
+      expect(result.breakdown.error_match).toBe(100);
+    });
+
+    it("scores partial when some codes match", () => {
+      const memory = createMemory({ error_signatures: ["401 Unauthorized"] });
+      const context = createContext();
+      const result = scoreMemory(memory, context, undefined, ["401", "503"]);
+      expect(result.breakdown.error_match).toBe(50);
+    });
+
+    it("scores zero when no codes match", () => {
+      const memory = createMemory({ error_signatures: ["401 Unauthorized"] });
+      const context = createContext();
+      const result = scoreMemory(memory, context, undefined, ["503"]);
+      expect(result.breakdown.error_match).toBe(0);
+    });
+
+    it("scores zero when memory has no signatures", () => {
+      const memory = createMemory({ error_signatures: [] });
+      const context = createContext();
+      const result = scoreMemory(memory, context, undefined, ["401"]);
+      expect(result.breakdown.error_match).toBe(0);
+    });
+
+    it("scores zero when no error codes provided", () => {
+      const memory = createMemory();
+      const context = createContext();
+      const result = scoreMemory(memory, context);
+      expect(result.breakdown.error_match).toBe(0);
+    });
+
+    it("matches case-insensitively", () => {
+      const memory = createMemory({ error_signatures: ["TypeError: fetch failed"] });
+      const context = createContext();
+      const result = scoreMemory(memory, context, undefined, ["typeerror: fetch failed"]);
+      expect(result.breakdown.error_match).toBe(100);
+    });
+  });
+
   describe("recency", () => {
     it("scores high for today", () => {
       const memory = createMemory({ date: new Date().toISOString().split("T")[0] });
@@ -147,7 +190,7 @@ describe("scoreMemory", () => {
   });
 
   describe("overall score", () => {
-    it("equals the correct weighted formula: file*0.4 + semantic*0.3 + recency*0.2 + importance*0.1", () => {
+    it("uses 4-signal formula when no error codes provided", () => {
       const memory = createMemory();
       const context = createContext({
         prompt: "authentication token expired",
@@ -162,13 +205,26 @@ describe("scoreMemory", () => {
       expect(result.score).toBeCloseTo(expected, 5);
     });
 
+    it("uses 5-signal formula when error codes match", () => {
+      const memory = createMemory({ error_signatures: ["401 Unauthorized"] });
+      const context = createContext({ recent_files: ["src/auth.ts"] });
+      const result = scoreMemory(memory, context, undefined, ["401"]);
+      const expected =
+        result.breakdown.file_overlap * 0.3 +
+        result.breakdown.semantic_similarity * 0.25 +
+        result.breakdown.error_match! * 0.2 +
+        result.breakdown.recency * 0.15 +
+        result.breakdown.decision_importance * 0.1;
+      expect(result.score).toBeCloseTo(expected, 5);
+    });
+
     it("weighted formula holds with embedding override too", () => {
       const memory = createMemory();
       const context = createContext({ recent_files: ["src/auth.ts"] });
       const result = scoreMemory(memory, context, 0.72);
       const expected =
         result.breakdown.file_overlap * 0.4 +
-        72 * 0.3 + // embedding similarity = 0.72 * 100
+        72 * 0.3 +
         result.breakdown.recency * 0.2 +
         result.breakdown.decision_importance * 0.1;
       expect(result.score).toBeCloseTo(expected, 5);
