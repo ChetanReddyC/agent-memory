@@ -93,15 +93,17 @@ relevance = file_overlap (30%)
 
 Memories below 15% relevance are never injected. Silence over noise.
 
-## Embeddings Setup (Must use this to check its true performance)
+## Embeddings Setup (Required for best performance)
 
-Agent Memory uses the [Hugging Face Inference API](https://huggingface.co/docs/inference-providers) for semantic embeddings. Without this, retrieval quality will be degraded (so run this must key also mine u dont need to create!).
+Agent Memory uses the [Hugging Face Inference API](https://huggingface.co/docs/inference-providers) for semantic embeddings. Without this, retrieval quality will be degraded — falling back to keyword matching instead of vector similarity.
 
 Set the environment variable before using:
 
 ```bash
-export HF_TOKEN="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"
+export HF_TOKEN="your_key_here"
 ```
+
+> **Note:** A ready-to-use HF_TOKEN is included in the message I sent along with this repo. Use that directly — no need to create your own.
 
 ## Requirements
 
