@@ -111,16 +111,24 @@ function installClaudeHook(repoPath, cliPath) {
         settings.hooks.UserPromptSubmit = [];
     }
     // Check if already installed
-    const existing = settings.hooks.UserPromptSubmit.find((entry) => entry.command?.includes(HOOK_ID) || entry.command?.includes("agent-memory"));
+    const existing = settings.hooks.UserPromptSubmit.find((entry) => {
+        const cmd = entry.command || entry.hooks?.[0]?.command || "";
+        return cmd.includes(HOOK_ID) || cmd.includes("agent-memory");
+    });
     if (existing) {
         // Update the script in case path changed
         fs.writeFileSync(hookScriptPath, createHookScript(), { mode: 0o755, encoding: "utf-8" });
         return { success: true, message: "Claude Code hook already installed (script updated)." };
     }
-    // Add our hook using relative path from repo root
+    // Add our hook — must use matcher + hooks format (Claude Code requirement)
     settings.hooks.UserPromptSubmit.push({
-        type: "command",
-        command: `bash .agent-memory/inject-hook.sh`,
+        matcher: "",
+        hooks: [
+            {
+                type: "command",
+                command: "bash .agent-memory/inject-hook.sh",
+            },
+        ],
     });
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
     return { success: true, message: "Claude Code auto-inject hook installed." };
@@ -144,7 +152,10 @@ function uninstallClaudeHook(repoPath) {
         return { success: true, message: "No Claude Code hook found." };
     }
     // Remove our hook entries
-    settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter((entry) => !entry.command?.includes(HOOK_ID) && !entry.command?.includes("agent-memory"));
+    settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter((entry) => {
+        const cmd = entry.command || entry.hooks?.[0]?.command || "";
+        return !cmd.includes(HOOK_ID) && !cmd.includes("agent-memory");
+    });
     // Clean up empty arrays
     if (settings.hooks.UserPromptSubmit.length === 0) {
         delete settings.hooks.UserPromptSubmit;
@@ -169,7 +180,10 @@ function isClaudeHookInstalled(repoPath) {
         return false;
     try {
         const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-        return settings.hooks?.UserPromptSubmit?.some((entry) => entry.command?.includes(HOOK_ID) || entry.command?.includes("agent-memory")) ?? false;
+        return settings.hooks?.UserPromptSubmit?.some((entry) => {
+            const cmd = entry.command || entry.hooks?.[0]?.command || "";
+            return cmd.includes(HOOK_ID) || cmd.includes("agent-memory");
+        }) ?? false;
     }
     catch {
         return false;

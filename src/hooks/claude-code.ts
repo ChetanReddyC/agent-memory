@@ -94,7 +94,10 @@ export function installClaudeHook(repoPath: string, cliPath: string): { success:
 
   // Check if already installed
   const existing = settings.hooks.UserPromptSubmit.find(
-    (entry) => entry.command?.includes(HOOK_ID) || entry.command?.includes("agent-memory")
+    (entry: any) => {
+      const cmd = entry.command || entry.hooks?.[0]?.command || "";
+      return cmd.includes(HOOK_ID) || cmd.includes("agent-memory");
+    }
   );
   if (existing) {
     // Update the script in case path changed
@@ -102,11 +105,16 @@ export function installClaudeHook(repoPath: string, cliPath: string): { success:
     return { success: true, message: "Claude Code hook already installed (script updated)." };
   }
 
-  // Add our hook using relative path from repo root
+  // Add our hook — must use matcher + hooks format (Claude Code requirement)
   settings.hooks.UserPromptSubmit.push({
-    type: "command",
-    command: `bash .agent-memory/inject-hook.sh`,
-  });
+    matcher: "",
+    hooks: [
+      {
+        type: "command",
+        command: "bash .agent-memory/inject-hook.sh",
+      },
+    ],
+  } as any);
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
   return { success: true, message: "Claude Code auto-inject hook installed." };
@@ -135,7 +143,10 @@ export function uninstallClaudeHook(repoPath: string): { success: boolean; messa
 
   // Remove our hook entries
   settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
-    (entry) => !entry.command?.includes(HOOK_ID) && !entry.command?.includes("agent-memory")
+    (entry: any) => {
+      const cmd = entry.command || entry.hooks?.[0]?.command || "";
+      return !cmd.includes(HOOK_ID) && !cmd.includes("agent-memory");
+    }
   );
 
   // Clean up empty arrays
@@ -167,7 +178,10 @@ export function isClaudeHookInstalled(repoPath: string): boolean {
   try {
     const settings: ClaudeSettings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     return settings.hooks?.UserPromptSubmit?.some(
-      (entry) => entry.command?.includes(HOOK_ID) || entry.command?.includes("agent-memory")
+      (entry: any) => {
+        const cmd = entry.command || entry.hooks?.[0]?.command || "";
+        return cmd.includes(HOOK_ID) || cmd.includes("agent-memory");
+      }
     ) ?? false;
   } catch {
     return false;
