@@ -1,0 +1,9 @@
+src/
+tests/
+.agent-memory/
+.env
+*.stackdump
+CLAUDE.md
+VISION.md
+jest.config.js
+tsconfig.json
