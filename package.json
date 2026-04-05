@@ -30,8 +30,5 @@
     "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.2"
-  },
-  "dependencies": {
-    "@huggingface/transformers": "^4.0.1"
   }
 }

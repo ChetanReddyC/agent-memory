@@ -1,7 +1,9 @@
 import { MemoryRecord } from "../types";
 /**
- * Generates an embedding vector for the given text.
- * Returns a 384-dimensional float array.
+ * Generates an embedding vector using the free Hugging Face Inference API.
+ * Uses all-MiniLM-L6-v2 — 384-dim vectors, same quality as local model.
+ * Zero npm dependencies — just native fetch.
+ * Requires HF_TOKEN env variable (free at https://huggingface.co/settings/tokens).
  */
 export declare function generateEmbedding(text: string): Promise<number[]>;
 /**

@@ -34,7 +34,25 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+// Load .env from package root (for HF_TOKEN etc.)
+const envPath = path.resolve(__dirname, "../.env");
+if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, "utf-8");
+    for (const line of envContent.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith("#")) {
+            const eqIdx = trimmed.indexOf("=");
+            if (eqIdx > 0) {
+                const key = trimmed.slice(0, eqIdx).trim();
+                const val = trimmed.slice(eqIdx + 1).trim();
+                if (!process.env[key])
+                    process.env[key] = val;
+            }
+        }
+    }
+}
 const distiller_1 = require("./distiller");
 const llm_1 = require("./distiller/llm");
 const store_1 = require("./store");

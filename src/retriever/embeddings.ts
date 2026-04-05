@@ -2,35 +2,46 @@ import * as fs from "fs";
 import * as path from "path";
 import { MemoryRecord } from "../types";
 
-let pipeline: any = null;
-let pipelineLoading: Promise<any> | null = null;
+const HF_API_URL = "https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2/pipeline/feature-extraction";
 
 /**
- * Lazily loads the embedding model. First call downloads ~30MB model (cached after).
- * Uses all-MiniLM-L6-v2 — 384-dim vectors, fast, good quality.
- */
-async function getEmbeddingPipeline(): Promise<any> {
-  if (pipeline) return pipeline;
-
-  if (!pipelineLoading) {
-    pipelineLoading = (async () => {
-      const { pipeline: createPipeline } = await import("@huggingface/transformers");
-      pipeline = await createPipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
-      return pipeline;
-    })();
-  }
-
-  return pipelineLoading;
-}
-
-/**
- * Generates an embedding vector for the given text.
- * Returns a 384-dimensional float array.
+ * Generates an embedding vector using the free Hugging Face Inference API.
+ * Uses all-MiniLM-L6-v2 — 384-dim vectors, same quality as local model.
+ * Zero npm dependencies — just native fetch.
+ * Requires HF_TOKEN env variable (free at https://huggingface.co/settings/tokens).
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const extractor = await getEmbeddingPipeline();
-  const output = await extractor(text, { pooling: "mean", normalize: true });
-  return Array.from(output.data as Float32Array);
+  const token = process.env.HF_TOKEN;
+  if (!token) {
+    throw new Error("HF_TOKEN not set. Get a free token at https://huggingface.co/settings/tokens");
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${token}`,
+  };
+
+  const response = await fetch(HF_API_URL, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ inputs: text }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Embedding API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+
+  // API returns nested array for single input — extract the vector
+  if (Array.isArray(data) && Array.isArray(data[0]) && typeof data[0][0] === "number") {
+    return data[0] as number[];
+  }
+  if (Array.isArray(data) && typeof data[0] === "number") {
+    return data as number[];
+  }
+
+  throw new Error("Unexpected embedding API response format");
 }
 
 /**
