@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "npm run build",
+    "prepare": "npm run build",
     "dev": "ts-node src/cli.ts",
     "test": "jest"
   },
