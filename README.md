@@ -101,8 +101,19 @@ Agent Memory uses the [Hugging Face Inference API](https://huggingface.co/docs/i
 
 Set the environment variable before using:
 
+**Mac / Linux:**
 ```bash
 export HF_TOKEN="key_is_in_msg_i_sent!"
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:HF_TOKEN="key_is_in_msg_i_sent!"
+```
+
+**Windows (CMD):**
+```cmd
+set HF_TOKEN=key_is_in_msg_i_sent!
 ```
 
 ## Requirements
