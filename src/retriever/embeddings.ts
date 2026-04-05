@@ -14,7 +14,7 @@ async function getEmbeddingPipeline(): Promise<any> {
 
   if (!pipelineLoading) {
     pipelineLoading = (async () => {
-      const { pipeline: createPipeline } = await import("@xenova/transformers");
+      const { pipeline: createPipeline } = await import("@huggingface/transformers");
       pipeline = await createPipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
       return pipeline;
     })();
