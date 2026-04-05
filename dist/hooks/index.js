@@ -74,15 +74,12 @@ function generateHookScript(cliCommand) {
     return `
 ${HOOK_START_MARKER}
 # Auto-distill Entire checkpoints into agent memory records
-# Then pre-generate inject cache for instant session injection
 REPO_DIR="$(git rev-parse --show-toplevel)"
 LOG_FILE="$REPO_DIR/.agent-memory/distill.log"
-CACHE_FILE="$REPO_DIR/.agent-memory/inject-cache.txt"
 mkdir -p "$REPO_DIR/.agent-memory"
 (
   cd "$REPO_DIR" && \\
-  ${cliCommand} distill --all >> "$LOG_FILE" 2>&1 && \\
-  ${cliCommand} inject "general context" > "$CACHE_FILE" 2>/dev/null
+  ${cliCommand} distill --all >> "$LOG_FILE" 2>&1
 ) &
 ${HOOK_END_MARKER}
 `;

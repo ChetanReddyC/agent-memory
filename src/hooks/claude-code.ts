@@ -24,16 +24,16 @@ interface ClaudeSettings {
 function createHookScript(): string {
   return `#!/bin/bash
 # ${HOOK_ID}
-# Auto-inject agent memories on first prompt of each new session
+# Runs inject with the actual user prompt — no caching, accurate results
 # Tracks by session_id so each new session gets memories
 
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-CACHE="$REPO/.agent-memory/inject-cache.txt"
 TRACKER="$REPO/.agent-memory/.last-session-id"
 
-# Read stdin JSON to get session_id
+# Read stdin JSON to get session_id and prompt
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).session_id||'')}catch{console.log('')}})" 2>/dev/null)
+PROMPT=$(echo "$INPUT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).prompt||'')}catch{console.log('')}})" 2>/dev/null)
 
 # Skip if same session already injected
 if [ -f "$TRACKER" ]; then
@@ -43,11 +43,15 @@ if [ -f "$TRACKER" ]; then
   fi
 fi
 
-# Output cached injection if it exists
-if [ -f "$CACHE" ]; then
-  echo "$SESSION_ID" > "$TRACKER"
-  cat "$CACHE"
+if [ -z "$PROMPT" ]; then
+  exit 0
 fi
+
+# Update tracker
+echo "$SESSION_ID" > "$TRACKER"
+
+# Run inject with the actual prompt
+cd "$REPO" && agent-memory inject "$PROMPT" 2>/dev/null
 
 exit 0
 `;
