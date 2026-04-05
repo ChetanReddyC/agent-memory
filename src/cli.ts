@@ -142,7 +142,7 @@ async function main() {
       }
 
       for (const m of memories) {
-        console.log(`${m.date} | ${m.checkpoint_id.slice(0, 12)} | ${m.files.length} files | ${m.decisions.length} decisions | ${m.intent.slice(0, 50)}`);
+        console.log(`${m.date || "unknown"} | ${(m.checkpoint_id || "").slice(0, 12)} | ${(m.files || []).length} files | ${(m.decisions || []).length} decisions | ${(m.intent || "").slice(0, 50)}`);
       }
       console.log(`\nTotal: ${memories.length} memories`);
       break;

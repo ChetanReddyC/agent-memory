@@ -13,6 +13,13 @@ export function formatForInjection(memories: ScoredMemory[]): string {
 
   const lines: string[] = [];
   lines.push("=== AGENT MEMORY — Context from previous sessions ===");
+  lines.push("CRITICAL INSTRUCTION: You MUST read and apply these memories BEFORE doing ANY investigation. These contain verified root causes, failed approaches, and warnings from past debugging sessions on this exact codebase. Do NOT re-investigate problems that are already solved here.");
+  lines.push("At the START of your response, display this memory summary so the developer can see what context you have:");
+  lines.push("");
+  lines.push("```");
+  lines.push(formatCompactSummary(memories));
+  lines.push("```");
+  lines.push("Then proceed with your response using the memory context.");
   lines.push("");
 
   for (const { memory, score } of memories) {
@@ -97,6 +104,21 @@ export function formatAsJSON(memories: ScoredMemory[]): string {
     null,
     2
   );
+}
+
+/**
+ * Compact summary for Claude to display at the start of its response.
+ */
+function formatCompactSummary(memories: ScoredMemory[]): string {
+  const lines: string[] = [];
+  lines.push(`agent-memory | ${memories.length} ${memories.length === 1 ? "memory" : "memories"} loaded`);
+  for (const { memory, score } of memories) {
+    const insight = memory.key_insight
+      ? memory.key_insight.slice(0, 70)
+      : memory.intent.slice(0, 70);
+    lines.push(`  [${Math.round(score)}%] ${insight} (${shortDate(memory.date)})`);
+  }
+  return lines.join("\n");
 }
 
 /**

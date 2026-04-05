@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { execSync } from "child_process";
 
 export { installClaudeHook, uninstallClaudeHook, isClaudeHookInstalled } from "./claude-code";
 
@@ -7,20 +8,43 @@ const HOOK_START_MARKER = "# >>> agent-memory hook >>>";
 const HOOK_END_MARKER = "# <<< agent-memory hook <<<";
 
 /**
- * Generates the hook script content for post-commit auto-distillation.
- * Runs distill --all in background, logs to .agent-memory/distill.log.
+ * Detects the best way to invoke agent-memory CLI.
+ * Prefers global install, falls back to source path for dev mode.
  */
-function generateHookScript(cliPath: string): string {
+export function resolveCliCommand(fallbackPath?: string): string {
+  // Check if agent-memory is globally installed
+  try {
+    execSync("agent-memory --help", { stdio: "pipe", timeout: 5000 });
+    return "agent-memory";
+  } catch {
+    // Not globally installed
+  }
+
+  // Fall back to source path (dev mode)
+  if (fallbackPath) {
+    const unixPath = fallbackPath.replace(/\\/g, "/");
+    return `npx ts-node "${unixPath}"`;
+  }
+
+  return "agent-memory";
+}
+
+/**
+ * Generates the hook script content for post-commit auto-distillation.
+ */
+function generateHookScript(cliCommand: string): string {
   return `
 ${HOOK_START_MARKER}
 # Auto-distill Entire checkpoints into agent memory records
-AGENT_MEMORY_CLI="${cliPath}"
+# Then pre-generate inject cache for instant session injection
 REPO_DIR="$(git rev-parse --show-toplevel)"
 LOG_FILE="$REPO_DIR/.agent-memory/distill.log"
+CACHE_FILE="$REPO_DIR/.agent-memory/inject-cache.txt"
 mkdir -p "$REPO_DIR/.agent-memory"
 (
   cd "$REPO_DIR" && \\
-  npx ts-node "$AGENT_MEMORY_CLI" distill --all >> "$LOG_FILE" 2>&1
+  ${cliCommand} distill --all >> "$LOG_FILE" 2>&1 && \\
+  ${cliCommand} inject "general context" > "$CACHE_FILE" 2>/dev/null
 ) &
 ${HOOK_END_MARKER}
 `;
@@ -28,7 +52,6 @@ ${HOOK_END_MARKER}
 
 /**
  * Installs the post-commit hook in the given repository.
- * If a hook already exists, appends our section. Never overwrites.
  */
 export function installHook(repoPath: string, cliPath: string): { success: boolean; message: string } {
   const gitDir = path.join(repoPath, ".git");
@@ -42,30 +65,27 @@ export function installHook(repoPath: string, cliPath: string): { success: boole
   }
 
   const hookPath = path.join(hooksDir, "post-commit");
-  const hookScript = generateHookScript(cliPath);
+  const cliCommand = resolveCliCommand(cliPath);
+  const hookScript = generateHookScript(cliCommand);
 
   if (fs.existsSync(hookPath)) {
     const existing = fs.readFileSync(hookPath, "utf-8");
 
-    // Already installed
     if (existing.includes(HOOK_START_MARKER)) {
-      return { success: true, message: "Hook already installed." };
+      return { success: true, message: `Hook already installed (using: ${cliCommand}).` };
     }
 
-    // Append to existing hook
     fs.appendFileSync(hookPath, "\n" + hookScript, "utf-8");
-    return { success: true, message: "Hook appended to existing post-commit hook." };
+    return { success: true, message: `Hook appended (using: ${cliCommand}).` };
   }
 
-  // Create new hook
   const content = "#!/bin/bash\n" + hookScript;
   fs.writeFileSync(hookPath, content, { mode: 0o755, encoding: "utf-8" });
-  return { success: true, message: "Post-commit hook installed." };
+  return { success: true, message: `Post-commit hook installed (using: ${cliCommand}).` };
 }
 
 /**
  * Removes the agent-memory hook from the repository.
- * Only removes our section, leaves other hook content intact.
  */
 export function uninstallHook(repoPath: string): { success: boolean; message: string } {
   const hookPath = path.join(repoPath, ".git", "hooks", "post-commit");
@@ -80,7 +100,6 @@ export function uninstallHook(repoPath: string): { success: boolean; message: st
     return { success: true, message: "Agent-memory hook not found. Nothing to remove." };
   }
 
-  // Remove our section
   const regex = new RegExp(
     `\\n?${HOOK_START_MARKER}[\\s\\S]*?${HOOK_END_MARKER}\\n?`,
     "g"
@@ -88,12 +107,10 @@ export function uninstallHook(repoPath: string): { success: boolean; message: st
   const cleaned = content.replace(regex, "").trim();
 
   if (cleaned === "#!/bin/bash" || cleaned === "") {
-    // Hook is now empty — remove the file
     fs.unlinkSync(hookPath);
     return { success: true, message: "Post-commit hook removed (was only agent-memory)." };
   }
 
-  // Other hook content remains
   fs.writeFileSync(hookPath, cleaned, { mode: 0o755, encoding: "utf-8" });
   return { success: true, message: "Agent-memory hook removed. Other hook content preserved." };
 }

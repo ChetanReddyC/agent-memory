@@ -4,11 +4,8 @@ import * as path from "path";
 const HOOK_ID = "agent-memory-auto-inject";
 
 interface ClaudeHookEntry {
-  matcher: string;
-  hooks: Array<{
-    type: string;
-    command: string;
-  }>;
+  type: string;
+  command: string;
 }
 
 interface ClaudeSettings {
@@ -20,18 +17,45 @@ interface ClaudeSettings {
 }
 
 /**
- * Generates the shell command that the Claude Code hook will run.
- * Uses a session tracker to only inject once per session (1 hour window).
+ * Creates the hook shell script that reads the prompt from stdin,
+ * runs agent-memory inject, and outputs the result to stdout
+ * (which Claude Code injects into the conversation as context).
  */
-function generateInjectCommand(cliPath: string): string {
-  // The command checks a timestamp file. If it was written less than 60 min ago, skip.
-  // Otherwise, run inject and update the timestamp.
-  return `bash -c 'REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && TRACKER="$REPO/.agent-memory/.last-inject" && mkdir -p "$REPO/.agent-memory" && if [ -f "$TRACKER" ]; then AGE=$(( $(date +%s) - $(cat "$TRACKER") )); if [ "$AGE" -lt 3600 ]; then exit 0; fi; fi && date +%s > "$TRACKER" && cd "$REPO" && npx ts-node "${cliPath}" inject "$PROMPT" 2>/dev/null'`;
+function createHookScript(): string {
+  return `#!/bin/bash
+# ${HOOK_ID}
+# Auto-inject agent memories on first prompt of each new session
+# Tracks by session_id so each new session gets memories
+
+REPO="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+CACHE="$REPO/.agent-memory/inject-cache.txt"
+TRACKER="$REPO/.agent-memory/.last-session-id"
+
+# Read stdin JSON to get session_id
+INPUT=$(cat)
+SESSION_ID=$(echo "$INPUT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).session_id||'')}catch{console.log('')}})" 2>/dev/null)
+
+# Skip if same session already injected
+if [ -f "$TRACKER" ]; then
+  LAST_SESSION=$(cat "$TRACKER" 2>/dev/null)
+  if [ "$SESSION_ID" = "$LAST_SESSION" ] && [ -n "$SESSION_ID" ]; then
+    exit 0
+  fi
+fi
+
+# Output cached injection if it exists
+if [ -f "$CACHE" ]; then
+  echo "$SESSION_ID" > "$TRACKER"
+  cat "$CACHE"
+fi
+
+exit 0
+`;
 }
 
 /**
  * Installs the Claude Code UserPromptSubmit hook for auto-injection.
- * Modifies .claude/settings.json in the project directory.
+ * Creates a hook script and registers it in .claude/settings.json.
  */
 export function installClaudeHook(repoPath: string, cliPath: string): { success: boolean; message: string } {
   const claudeDir = path.join(repoPath, ".claude");
@@ -41,6 +65,14 @@ export function installClaudeHook(repoPath: string, cliPath: string): { success:
   if (!fs.existsSync(claudeDir)) {
     fs.mkdirSync(claudeDir, { recursive: true });
   }
+
+  // Create the hook script
+  const hookScriptPath = path.join(repoPath, ".agent-memory", "inject-hook.sh");
+  const memoriesDir = path.join(repoPath, ".agent-memory");
+  if (!fs.existsSync(memoriesDir)) {
+    fs.mkdirSync(memoriesDir, { recursive: true });
+  }
+  fs.writeFileSync(hookScriptPath, createHookScript(), { mode: 0o755, encoding: "utf-8" });
 
   // Load existing settings or create new
   let settings: ClaudeSettings = {};
@@ -62,22 +94,18 @@ export function installClaudeHook(repoPath: string, cliPath: string): { success:
 
   // Check if already installed
   const existing = settings.hooks.UserPromptSubmit.find(
-    (entry) => entry.hooks?.some((h) => h.command?.includes(HOOK_ID) || h.command?.includes("agent-memory"))
+    (entry) => entry.command?.includes(HOOK_ID) || entry.command?.includes("agent-memory")
   );
   if (existing) {
-    return { success: true, message: "Claude Code hook already installed." };
+    // Update the script in case path changed
+    fs.writeFileSync(hookScriptPath, createHookScript(), { mode: 0o755, encoding: "utf-8" });
+    return { success: true, message: "Claude Code hook already installed (script updated)." };
   }
 
-  // Add our hook
-  const injectCommand = generateInjectCommand(cliPath);
+  // Add our hook using relative path from repo root
   settings.hooks.UserPromptSubmit.push({
-    matcher: "",
-    hooks: [
-      {
-        type: "command",
-        command: `# ${HOOK_ID}\n${injectCommand}`,
-      },
-    ],
+    type: "command",
+    command: `bash .agent-memory/inject-hook.sh`,
   });
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
@@ -107,7 +135,7 @@ export function uninstallClaudeHook(repoPath: string): { success: boolean; messa
 
   // Remove our hook entries
   settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
-    (entry) => !entry.hooks?.some((h) => h.command?.includes(HOOK_ID) || h.command?.includes("agent-memory"))
+    (entry) => !entry.command?.includes(HOOK_ID) && !entry.command?.includes("agent-memory")
   );
 
   // Clean up empty arrays
@@ -119,6 +147,13 @@ export function uninstallClaudeHook(repoPath: string): { success: boolean; messa
   }
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
+
+  // Remove hook script
+  const hookScriptPath = path.join(repoPath, ".agent-memory", "inject-hook.sh");
+  if (fs.existsSync(hookScriptPath)) {
+    fs.unlinkSync(hookScriptPath);
+  }
+
   return { success: true, message: "Claude Code auto-inject hook removed." };
 }
 
@@ -132,7 +167,7 @@ export function isClaudeHookInstalled(repoPath: string): boolean {
   try {
     const settings: ClaudeSettings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
     return settings.hooks?.UserPromptSubmit?.some(
-      (entry) => entry.hooks?.some((h) => h.command?.includes(HOOK_ID) || h.command?.includes("agent-memory"))
+      (entry) => entry.command?.includes(HOOK_ID) || entry.command?.includes("agent-memory")
     ) ?? false;
   } catch {
     return false;

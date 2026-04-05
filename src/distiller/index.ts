@@ -93,10 +93,11 @@ export async function distill(repoPath: string, checkpointId: string, memoriesDi
   const toolCalls = extractToolCalls(entries);
 
   // Generate searchable tags
-  const tags = generateTags(meta.files_touched, userMessages, assistantMessages);
+  const filesTouched = meta.files_touched || [];
+  const tags = generateTags(filesTouched, userMessages, assistantMessages);
 
   // Normalize file paths
-  const files = meta.files_touched.map((f) => {
+  const files = filesTouched.map((f) => {
     const parts = f.split(/[/\\]/);
     return parts.slice(-3).join("/");
   });
@@ -109,13 +110,13 @@ export async function distill(repoPath: string, checkpointId: string, memoriesDi
   if (llmResult) {
     record = {
       checkpoint_id: checkpointId,
-      session_id: meta.session_id,
-      date: meta.created_at.split("T")[0],
-      branch: meta.branch,
+      session_id: meta.session_id || checkpointId,
+      date: (meta.created_at || new Date().toISOString()).split("T")[0],
+      branch: meta.branch || "unknown",
       files,
       tags,
-      turn_count: meta.session_metrics.turn_count,
-      token_usage: meta.token_usage.output_tokens + meta.token_usage.input_tokens,
+      turn_count: meta.session_metrics?.turn_count || 0,
+      token_usage: (meta.token_usage?.output_tokens || 0) + (meta.token_usage?.input_tokens || 0),
       intent: llmResult.intent,
       decisions: llmResult.decisions,
       failed_approaches: llmResult.failed_approaches,
@@ -139,13 +140,13 @@ export async function distill(repoPath: string, checkpointId: string, memoriesDi
 
     record = {
       checkpoint_id: checkpointId,
-      session_id: meta.session_id,
-      date: meta.created_at.split("T")[0],
-      branch: meta.branch,
+      session_id: meta.session_id || checkpointId,
+      date: (meta.created_at || new Date().toISOString()).split("T")[0],
+      branch: meta.branch || "unknown",
       files,
       tags,
-      turn_count: meta.session_metrics.turn_count,
-      token_usage: meta.token_usage.output_tokens + meta.token_usage.input_tokens,
+      turn_count: meta.session_metrics?.turn_count || 0,
+      token_usage: (meta.token_usage?.output_tokens || 0) + (meta.token_usage?.input_tokens || 0),
       intent,
       decisions,
       failed_approaches: failedApproaches,

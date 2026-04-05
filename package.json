@@ -6,8 +6,12 @@
   "bin": {
     "agent-memory": "dist/cli.js"
   },
+  "files": [
+    "dist/**/*"
+  ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "dev": "ts-node src/cli.ts",
     "test": "jest"
   },

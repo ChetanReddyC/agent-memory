@@ -37,7 +37,7 @@ export class MemoryStore {
 
     return fs
       .readdirSync(this.memoriesDir)
-      .filter((f) => f.endsWith(".json"))
+      .filter((f) => f.endsWith(".json") && f !== "embeddings.json")
       .map((f) => {
         const raw = fs.readFileSync(path.join(this.memoriesDir, f), "utf-8");
         return JSON.parse(raw) as MemoryRecord;
@@ -53,6 +53,6 @@ export class MemoryStore {
   /** Count total memories */
   count(): number {
     if (!fs.existsSync(this.memoriesDir)) return 0;
-    return fs.readdirSync(this.memoriesDir).filter((f) => f.endsWith(".json")).length;
+    return fs.readdirSync(this.memoriesDir).filter((f) => f.endsWith(".json") && f !== "embeddings.json").length;
   }
 }
