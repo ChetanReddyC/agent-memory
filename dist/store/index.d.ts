@@ -7,6 +7,8 @@ import { MemoryRecord } from "../types";
 export declare class MemoryStore {
     private memoriesDir;
     constructor(memoriesDir: string);
+    /** Sanitize checkpoint ID for filesystem (: not allowed on Windows) */
+    private sanitizeId;
     /** Save a memory record */
     save(record: MemoryRecord): void;
     /** Load a specific memory by checkpoint ID */

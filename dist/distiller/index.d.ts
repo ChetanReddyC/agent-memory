@@ -1,6 +1,8 @@
 import { MemoryRecord } from "../types";
 /**
- * Lists all checkpoint IDs in the repository.
+ * Lists all checkpoint+sub-index pairs in the repository.
+ * Returns IDs like "4802aa6ca39b:0", "4802aa6ca39b:1", etc.
+ * Each sub-index is a separate session that needs its own distillation.
  */
 export declare function listCheckpoints(repoPath: string): string[];
 /**

@@ -17,15 +17,20 @@ export class MemoryStore {
     }
   }
 
+  /** Sanitize checkpoint ID for filesystem (: not allowed on Windows) */
+  private sanitizeId(checkpointId: string): string {
+    return checkpointId.replace(/:/g, "_");
+  }
+
   /** Save a memory record */
   save(record: MemoryRecord): void {
-    const filePath = path.join(this.memoriesDir, `${record.checkpoint_id}.json`);
+    const filePath = path.join(this.memoriesDir, `${this.sanitizeId(record.checkpoint_id)}.json`);
     fs.writeFileSync(filePath, JSON.stringify(record, null, 2), "utf-8");
   }
 
   /** Load a specific memory by checkpoint ID */
   load(checkpointId: string): MemoryRecord | null {
-    const filePath = path.join(this.memoriesDir, `${checkpointId}.json`);
+    const filePath = path.join(this.memoriesDir, `${this.sanitizeId(checkpointId)}.json`);
     if (!fs.existsSync(filePath)) return null;
     const raw = fs.readFileSync(filePath, "utf-8");
     return JSON.parse(raw) as MemoryRecord;
@@ -47,7 +52,7 @@ export class MemoryStore {
 
   /** Check if a checkpoint has already been distilled */
   exists(checkpointId: string): boolean {
-    return fs.existsSync(path.join(this.memoriesDir, `${checkpointId}.json`));
+    return fs.existsSync(path.join(this.memoriesDir, `${this.sanitizeId(checkpointId)}.json`));
   }
 
   /** Count total memories */

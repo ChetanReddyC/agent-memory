@@ -7,17 +7,17 @@ const extractor_1 = require("./extractor");
 const llm_1 = require("./llm");
 const embeddings_1 = require("../retriever/embeddings");
 /**
- * Reads the raw JSONL transcript from a checkpoint on the Entire branch.
+ * Reads the raw JSONL transcript from a checkpoint sub-index on the Entire branch.
  */
-function readCheckpointTranscript(repoPath, checkpointId) {
+function readCheckpointTranscript(repoPath, checkpointId, subIndex = 0) {
     const shard = checkpointId.slice(0, 2);
     const remaining = checkpointId.slice(2);
-    const gitPath = `${shard}/${remaining}/0/full.jsonl`;
+    const gitPath = `${shard}/${remaining}/${subIndex}/full.jsonl`;
     try {
         const raw = (0, child_process_1.execSync)(`git show entire/checkpoints/v1:${gitPath}`, {
             cwd: repoPath,
             encoding: "utf-8",
-            maxBuffer: 50 * 1024 * 1024, // 50MB buffer for large sessions
+            maxBuffer: 50 * 1024 * 1024,
         });
         return raw
             .split("\n")
@@ -25,16 +25,16 @@ function readCheckpointTranscript(repoPath, checkpointId) {
             .map((line) => JSON.parse(line));
     }
     catch {
-        throw new Error(`Failed to read transcript for checkpoint ${checkpointId}`);
+        throw new Error(`Failed to read transcript for checkpoint ${checkpointId}/${subIndex}`);
     }
 }
 /**
- * Reads checkpoint metadata from the Entire branch.
+ * Reads checkpoint metadata from a sub-index on the Entire branch.
  */
-function readCheckpointMeta(repoPath, checkpointId) {
+function readCheckpointMeta(repoPath, checkpointId, subIndex = 0) {
     const shard = checkpointId.slice(0, 2);
     const remaining = checkpointId.slice(2);
-    const gitPath = `${shard}/${remaining}/0/metadata.json`;
+    const gitPath = `${shard}/${remaining}/${subIndex}/metadata.json`;
     try {
         const raw = (0, child_process_1.execSync)(`git show entire/checkpoints/v1:${gitPath}`, {
             cwd: repoPath,
@@ -43,11 +43,37 @@ function readCheckpointMeta(repoPath, checkpointId) {
         return JSON.parse(raw);
     }
     catch {
-        throw new Error(`Failed to read metadata for checkpoint ${checkpointId}`);
+        throw new Error(`Failed to read metadata for checkpoint ${checkpointId}/${subIndex}`);
     }
 }
 /**
- * Lists all checkpoint IDs in the repository.
+ * Lists all sub-indices for a checkpoint (0, 1, 2, ...).
+ */
+function listSubCheckpoints(repoPath, checkpointId) {
+    const shard = checkpointId.slice(0, 2);
+    const remaining = checkpointId.slice(2);
+    try {
+        const raw = (0, child_process_1.execSync)(`git ls-tree entire/checkpoints/v1:${shard}/${remaining}/`, {
+            cwd: repoPath,
+            encoding: "utf-8",
+        });
+        const subIndices = [];
+        for (const line of raw.split("\n")) {
+            const match = line.match(/\b(\d+)$/);
+            if (match) {
+                subIndices.push(parseInt(match[1], 10));
+            }
+        }
+        return subIndices.sort((a, b) => a - b);
+    }
+    catch {
+        return [0];
+    }
+}
+/**
+ * Lists all checkpoint+sub-index pairs in the repository.
+ * Returns IDs like "4802aa6ca39b:0", "4802aa6ca39b:1", etc.
+ * Each sub-index is a separate session that needs its own distillation.
  */
 function listCheckpoints(repoPath) {
     try {
@@ -55,15 +81,23 @@ function listCheckpoints(repoPath) {
             cwd: repoPath,
             encoding: "utf-8",
         });
+        // First collect unique checkpoint IDs
         const checkpointIds = new Set();
         for (const line of raw.split("\n")) {
-            // Pattern: XX/YYYYYYYYYY/... → checkpoint ID is XX + YYYYYYYYYY
             const match = line.match(/^([0-9a-f]{2})\/([0-9a-f]+)\//);
             if (match) {
                 checkpointIds.add(match[1] + match[2]);
             }
         }
-        return Array.from(checkpointIds);
+        // Then expand each checkpoint into its sub-indices
+        const results = [];
+        for (const cpId of checkpointIds) {
+            const subIndices = listSubCheckpoints(repoPath, cpId);
+            for (const sub of subIndices) {
+                results.push(`${cpId}:${sub}`);
+            }
+        }
+        return results;
     }
     catch {
         return [];
@@ -76,8 +110,12 @@ function listCheckpoints(repoPath) {
  * Falls back to heuristic extraction if Claude CLI is not available.
  */
 async function distill(repoPath, checkpointId, memoriesDir) {
-    const meta = readCheckpointMeta(repoPath, checkpointId);
-    const entries = readCheckpointTranscript(repoPath, checkpointId);
+    // Parse sub-index from "checkpointId:subIndex" format
+    const parts = checkpointId.split(":");
+    const cpId = parts[0];
+    const subIndex = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+    const meta = readCheckpointMeta(repoPath, cpId, subIndex);
+    const entries = readCheckpointTranscript(repoPath, cpId, subIndex);
     const userMessages = (0, extractor_1.extractUserMessages)(entries);
     const assistantMessages = (0, extractor_1.extractAssistantMessages)(entries);
     const toolCalls = (0, extractor_1.extractToolCalls)(entries);

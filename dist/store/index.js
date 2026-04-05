@@ -49,14 +49,18 @@ class MemoryStore {
             fs.mkdirSync(memoriesDir, { recursive: true });
         }
     }
+    /** Sanitize checkpoint ID for filesystem (: not allowed on Windows) */
+    sanitizeId(checkpointId) {
+        return checkpointId.replace(/:/g, "_");
+    }
     /** Save a memory record */
     save(record) {
-        const filePath = path.join(this.memoriesDir, `${record.checkpoint_id}.json`);
+        const filePath = path.join(this.memoriesDir, `${this.sanitizeId(record.checkpoint_id)}.json`);
         fs.writeFileSync(filePath, JSON.stringify(record, null, 2), "utf-8");
     }
     /** Load a specific memory by checkpoint ID */
     load(checkpointId) {
-        const filePath = path.join(this.memoriesDir, `${checkpointId}.json`);
+        const filePath = path.join(this.memoriesDir, `${this.sanitizeId(checkpointId)}.json`);
         if (!fs.existsSync(filePath))
             return null;
         const raw = fs.readFileSync(filePath, "utf-8");
@@ -77,7 +81,7 @@ class MemoryStore {
     }
     /** Check if a checkpoint has already been distilled */
     exists(checkpointId) {
-        return fs.existsSync(path.join(this.memoriesDir, `${checkpointId}.json`));
+        return fs.existsSync(path.join(this.memoriesDir, `${this.sanitizeId(checkpointId)}.json`));
     }
     /** Count total memories */
     count() {
