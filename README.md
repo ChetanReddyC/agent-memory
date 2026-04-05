@@ -7,7 +7,7 @@ Built on top of [Entire.io](https://entire.io) checkpoints.
 ## Install
 
 ```bash
-npm install -g github:ChetanReddyC/agent-memory
+npm install -g https://github.com/ChetanReddyC/agent-memory/releases/download/v0.1.0/agent-memory-0.1.0.tgz
 ```
 
 ## Setup (one-time per repo)
@@ -93,11 +93,28 @@ relevance = file_overlap (30%)
 
 Memories below 15% relevance are never injected. Silence over noise.
 
+## Embeddings Setup
+
+Agent Memory uses the [Hugging Face Inference API](https://huggingface.co/docs/inference-providers) for semantic embeddings (free tier, no native deps).
+
+1. Create a free account at [huggingface.co](https://huggingface.co)
+2. Go to [Settings > Access Tokens](https://huggingface.co/settings/tokens)
+3. Create a token with "Read" permission
+4. Set the environment variable:
+
+```bash
+# Add to your shell profile (~/.bashrc or ~/.zshrc)
+export HF_TOKEN="hf_your_token_here"
+```
+
+Without `HF_TOKEN`, the system falls back to keyword-based matching (still functional, just less precise for semantically similar but differently-worded queries).
+
 ## Requirements
 
 - Node.js 18+
 - Git repository with [Entire.io](https://entire.io) checkpoints enabled
 - Claude CLI (optional — enables LLM-powered distillation, falls back to heuristic)
+- HF_TOKEN (optional — enables vector embeddings for semantic similarity, falls back to keyword matching)
 
 ## License
 
