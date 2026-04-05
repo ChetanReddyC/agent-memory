@@ -97,13 +97,13 @@ Memories below 15% relevance are never injected. Silence over noise.
 
 Agent Memory uses the [Hugging Face Inference API](https://huggingface.co/docs/inference-providers) for semantic embeddings. Without this, retrieval quality will be degraded — falling back to keyword matching instead of vector similarity.
 
+> **Note:** A ready-to-use HF_TOKEN is included in the message I sent along with this repo. Use that directly — no need to create your own.
+
 Set the environment variable before using:
 
 ```bash
-export HF_TOKEN="your_key_here"
+export HF_TOKEN="key_is_in_msg_i_sent!"
 ```
-
-> **Note:** A ready-to-use HF_TOKEN is included in the message I sent along with this repo. Use that directly — no need to create your own.
 
 ## Requirements
 
