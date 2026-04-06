@@ -9,7 +9,7 @@ import { refineQuery } from "./query";
 const DEFAULT_TOP_K = 5;
 
 /** Minimum score threshold — below this, memory isn't relevant enough */
-const MIN_SCORE_THRESHOLD = 15;
+const MIN_SCORE_THRESHOLD = 18;
 
 /**
  * Gathers the current session context from the git repository.
@@ -111,6 +111,19 @@ export async function retrieve(
     })
     .filter((sm) => sm.score >= MIN_SCORE_THRESHOLD)
     .sort((a, b) => b.score - a.score);
+
+  // Quality gate: if the best memory's content signals (semantic + error) are weak,
+  // inject nothing. Prevents vaguely-related memories from being injected.
+  if (scored.length > 0) {
+    const best = scored[0];
+    const bestContentScore = Math.max(
+      best.breakdown.semantic_similarity,
+      best.breakdown.error_match || 0
+    );
+    if (bestContentScore < 30) {
+      return [];
+    }
+  }
 
   return scored.slice(0, topK);
 }
