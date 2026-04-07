@@ -62,8 +62,8 @@ async function retrieve(store, context, topK = DEFAULT_TOP_K, memoriesDir) {
     const allMemories = store.loadAll();
     if (allMemories.length === 0)
         return [];
-    // Step 1: Refine the query using LLM (or heuristic fallback)
-    const refined = (0, query_1.refineQuery)(context.prompt);
+    // Step 1: Extract error codes and file hints from prompt (instant, no LLM call)
+    const refined = (0, query_1.refineQueryFast)(context.prompt);
     // Merge file hints from query refinement into context files
     const enhancedContext = {
         ...context,

@@ -8,3 +8,8 @@ export interface RefinedQuery {
  * a structured search query for more precise memory retrieval.
  */
 export declare function refineQuery(rawPrompt: string): RefinedQuery;
+/**
+ * Fast query refinement — regex only, no LLM call.
+ * Used by hooks where speed is critical (~1ms vs ~15s).
+ */
+export declare function refineQueryFast(rawPrompt: string): RefinedQuery;

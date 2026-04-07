@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.refineQuery = refineQuery;
+exports.refineQueryFast = refineQueryFast;
 const os = __importStar(require("os"));
 const child_process_1 = require("child_process");
 const llm_1 = require("../distiller/llm");
@@ -52,6 +53,13 @@ function refineQuery(rawPrompt) {
     catch {
         return fallback(rawPrompt);
     }
+}
+/**
+ * Fast query refinement — regex only, no LLM call.
+ * Used by hooks where speed is critical (~1ms vs ~15s).
+ */
+function refineQueryFast(rawPrompt) {
+    return fallback(rawPrompt);
 }
 /**
  * Fallback: extract what we can from the raw prompt without an LLM.

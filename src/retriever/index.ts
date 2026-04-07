@@ -3,7 +3,7 @@ import { MemoryRecord, SessionContext, ScoredMemory } from "../types";
 import { MemoryStore } from "../store";
 import { scoreMemory } from "./scorer";
 import { generateEmbedding, cosineSimilarity, EmbeddingStore } from "./embeddings";
-import { refineQuery } from "./query";
+import { refineQueryFast } from "./query";
 
 /** Default: return top 5 memories */
 const DEFAULT_TOP_K = 5;
@@ -70,8 +70,8 @@ export async function retrieve(
   const allMemories = store.loadAll();
   if (allMemories.length === 0) return [];
 
-  // Step 1: Refine the query using LLM (or heuristic fallback)
-  const refined = refineQuery(context.prompt);
+  // Step 1: Extract error codes and file hints from prompt (instant, no LLM call)
+  const refined = refineQueryFast(context.prompt);
 
   // Merge file hints from query refinement into context files
   const enhancedContext: SessionContext = {

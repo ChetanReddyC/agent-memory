@@ -26,6 +26,14 @@ export function refineQuery(rawPrompt: string): RefinedQuery {
 }
 
 /**
+ * Fast query refinement — regex only, no LLM call.
+ * Used by hooks where speed is critical (~1ms vs ~15s).
+ */
+export function refineQueryFast(rawPrompt: string): RefinedQuery {
+  return fallback(rawPrompt);
+}
+
+/**
  * Fallback: extract what we can from the raw prompt without an LLM.
  */
 function fallback(rawPrompt: string): RefinedQuery {
