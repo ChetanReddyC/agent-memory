@@ -98,8 +98,10 @@ async function retrieve(store, context, topK = DEFAULT_TOP_K, memoriesDir) {
     })
         .filter((sm) => sm.score >= MIN_SCORE_THRESHOLD)
         .sort((a, b) => b.score - a.score);
-    // Quality gate: if the best memory's content signals (semantic + error) are weak,
-    // inject nothing. Prevents vaguely-related memories from being injected.
+    // Quality gate applied PER MEMORY:
+    // - If the best memory has weak content signals (semantic + error < 30), inject nothing
+    // - Each individual memory must also have content signals >= 20 to be included
+    // This prevents weakly-related memories from riding the coattails of relevant ones
     if (scored.length > 0) {
         const best = scored[0];
         const bestContentScore = Math.max(best.breakdown.semantic_similarity, best.breakdown.error_match || 0);
@@ -107,5 +109,9 @@ async function retrieve(store, context, topK = DEFAULT_TOP_K, memoriesDir) {
             return [];
         }
     }
-    return scored.slice(0, topK);
+    const qualified = scored.filter((sm) => {
+        const contentScore = Math.max(sm.breakdown.semantic_similarity, sm.breakdown.error_match || 0);
+        return contentScore >= 30;
+    });
+    return qualified.slice(0, topK);
 }
